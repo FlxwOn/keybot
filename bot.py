@@ -1,7 +1,6 @@
 import discord
 from discord.ext import commands, tasks
 import sqlite3
-import asyncio
 from datetime import datetime, timedelta
 import random
 import string
@@ -11,7 +10,6 @@ intents = discord.Intents.default()
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Database
 conn = sqlite3.connect('keys.db')
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS active_access 
@@ -26,6 +24,11 @@ def generate_key():
 @bot.event
 async def on_ready():
     print(f"✅ Bot is online as {bot.user}")
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} commands")
+    except Exception as e:
+        print(f"Sync failed: {e}")
     check_expirations.start()
 
 @bot.tree.command(name="setup", description="Setup the bot (Admin only)")
@@ -33,7 +36,7 @@ async def on_ready():
 async def setup(interaction: discord.Interaction, role: discord.Role):
     global ROLE_ID
     ROLE_ID = role.id
-    await interaction.response.send_message(f"✅ Setup complete! Role set to: **{role.name}**", ephemeral=True)
+    await interaction.response.send_message(f"✅ Setup complete!\nRole set to: **{role.name}**", ephemeral=True)
 
 @bot.tree.command(name="gen", description="Generate keys (Admin only)")
 @commands.has_permissions(administrator=True)
@@ -44,7 +47,7 @@ async def gen(interaction: discord.Interaction, amount: int = 5):
 @bot.tree.command(name="redeem", description="Redeem your key for 7 days access")
 async def redeem(interaction: discord.Interaction, key: str):
     if ROLE_ID is None:
-        await interaction.response.send_message("❌ Bot not setup yet. Ask admin to run `/setup`", ephemeral=True)
+        await interaction.response.send_message("❌ Bot not setup yet. Run `/setup` first.", ephemeral=True)
         return
 
     member = interaction.user
@@ -60,7 +63,7 @@ async def redeem(interaction: discord.Interaction, key: str):
     c.execute("INSERT OR REPLACE INTO active_access VALUES (?, ?)", (member.id, expires))
     conn.commit()
 
-    await interaction.response.send_message(f"✅ Success! You have **7 days** NSFW access.", ephemeral=True)
+    await interaction.response.send_message(f"✅ Success! **7 days** NSFW access granted.", ephemeral=True)
 
 @tasks.loop(minutes=20)
 async def check_expirations():
@@ -79,7 +82,4 @@ async def check_expirations():
     conn.commit()
 
 token = os.getenv("TOKEN")
-if not token:
-    print("❌ TOKEN environment variable not found!")
-else:
-    bot.run(token)
+bot.run(token)
