@@ -5,6 +5,7 @@ import asyncio
 from datetime import datetime, timedelta
 import random
 import string
+import os
 
 intents = discord.Intents.default()
 intents.members = True
@@ -17,7 +18,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS active_access
              (user_id INTEGER PRIMARY KEY, expires TEXT)''')
 conn.commit()
 
-ROLE_ID = None  # Will be set during setup
+ROLE_ID = None
 
 def generate_key():
     return "KM-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=20))
@@ -32,7 +33,7 @@ async def on_ready():
 async def setup(interaction: discord.Interaction, role: discord.Role):
     global ROLE_ID
     ROLE_ID = role.id
-    await interaction.response.send_message(f"✅ Setup complete!\nRole set to: **{role.name}**\n\nUse `/gen` to create keys and `/redeem` to redeem.", ephemeral=True)
+    await interaction.response.send_message(f"✅ Setup complete! Role set to: **{role.name}**", ephemeral=True)
 
 @bot.tree.command(name="gen", description="Generate keys (Admin only)")
 @commands.has_permissions(administrator=True)
@@ -43,7 +44,7 @@ async def gen(interaction: discord.Interaction, amount: int = 5):
 @bot.tree.command(name="redeem", description="Redeem your key for 7 days access")
 async def redeem(interaction: discord.Interaction, key: str):
     if ROLE_ID is None:
-        await interaction.response.send_message("Bot not setup yet. Ask admin to run `/setup`", ephemeral=True)
+        await interaction.response.send_message("❌ Bot not setup yet. Ask admin to run `/setup`", ephemeral=True)
         return
 
     member = interaction.user
@@ -53,24 +54,19 @@ async def redeem(interaction: discord.Interaction, key: str):
         await interaction.response.send_message("You already have active access!", ephemeral=True)
         return
 
-    # Add role
     await member.add_roles(role)
 
-    # Save expiration (7 days)
     expires = (datetime.utcnow() + timedelta(days=7)).isoformat()
     c.execute("INSERT OR REPLACE INTO active_access VALUES (?, ?)", (member.id, expires))
     conn.commit()
 
-    await interaction.response.send_message(f"✅ Success! You now have **7 days** of NSFW access.", ephemeral=True)
+    await interaction.response.send_message(f"✅ Success! You have **7 days** NSFW access.", ephemeral=True)
 
-# Auto remove expired roles
 @tasks.loop(minutes=20)
 async def check_expirations():
     now = datetime.utcnow().isoformat()
     c.execute("SELECT user_id FROM active_access WHERE expires < ?", (now,))
-    expired_users = c.fetchall()
-
-    for (user_id,) in expired_users:
+    for (user_id,) in c.fetchall():
         for guild in bot.guilds:
             member = guild.get_member(user_id)
             role = guild.get_role(ROLE_ID)
@@ -79,9 +75,11 @@ async def check_expirations():
                     await member.remove_roles(role)
                 except:
                     pass
-
-    # Cleanup
     c.execute("DELETE FROM active_access WHERE expires < ?", (now,))
     conn.commit()
 
-bot.run("YOUR_BOT_TOKEN_HERE")
+token = os.getenv("TOKEN")
+if not token:
+    print("❌ TOKEN environment variable not found!")
+else:
+    bot.run(token)
