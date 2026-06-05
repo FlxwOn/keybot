@@ -26,7 +26,7 @@ async def on_ready():
     print(f"✅ Bot is online as {bot.user}")
     # Force sync for your server
     try:
-        guild = discord.Object(id=YOUR_SERVER_ID)  # ← Change this
+        guild = discord.Object(id=1511181685881045002)  # ← Change this
         synced = await bot.tree.sync(guild=guild)
         print(f"Synced {len(synced)} commands to your server")
     except Exception as e:
