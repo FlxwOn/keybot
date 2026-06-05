@@ -24,11 +24,13 @@ def generate_key():
 @bot.event
 async def on_ready():
     print(f"✅ Bot is online as {bot.user}")
+    # Force sync for your server
     try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} commands")
+        guild = discord.Object(id=YOUR_SERVER_ID)  # ← Change this
+        synced = await bot.tree.sync(guild=guild)
+        print(f"Synced {len(synced)} commands to your server")
     except Exception as e:
-        print(f"Sync failed: {e}")
+        print(f"Sync error: {e}")
     check_expirations.start()
 
 @bot.tree.command(name="setup", description="Setup the bot (Admin only)")
@@ -47,14 +49,14 @@ async def gen(interaction: discord.Interaction, amount: int = 5):
 @bot.tree.command(name="redeem", description="Redeem your key for 7 days access")
 async def redeem(interaction: discord.Interaction, key: str):
     if ROLE_ID is None:
-        await interaction.response.send_message("❌ Bot not setup yet. Run `/setup` first.", ephemeral=True)
+        await interaction.response.send_message("❌ Run `/setup` first!", ephemeral=True)
         return
 
     member = interaction.user
     role = interaction.guild.get_role(ROLE_ID)
 
     if role in member.roles:
-        await interaction.response.send_message("You already have active access!", ephemeral=True)
+        await interaction.response.send_message("You already have access!", ephemeral=True)
         return
 
     await member.add_roles(role)
@@ -63,7 +65,7 @@ async def redeem(interaction: discord.Interaction, key: str):
     c.execute("INSERT OR REPLACE INTO active_access VALUES (?, ?)", (member.id, expires))
     conn.commit()
 
-    await interaction.response.send_message(f"✅ Success! **7 days** NSFW access granted.", ephemeral=True)
+    await interaction.response.send_message(f"✅ You now have **7 days** NSFW access!", ephemeral=True)
 
 @tasks.loop(minutes=20)
 async def check_expirations():
