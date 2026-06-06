@@ -32,28 +32,30 @@ async def on_ready():
         print(f"Sync error: {e}")
     check_expirations.start()
 
-# Setup (Admin only)
+# === ADMIN ONLY COMMANDS ===
 @bot.tree.command(name="setup", description="Setup the bot (Admin only)")
-@commands.has_permissions(administrator=True)
 async def setup(interaction: discord.Interaction, role: discord.Role):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You need Administrator permission to use this.", ephemeral=True)
+        return
     global ROLE_ID
     ROLE_ID = role.id
     await interaction.response.send_message(f"✅ Setup complete!\nNSFW Role set to: **{role.name}**", ephemeral=True)
 
-# Generate Keys (Admin only)
 @bot.tree.command(name="gen", description="Generate keys (Admin only)")
-@commands.has_permissions(administrator=True)
 async def gen(interaction: discord.Interaction, amount: int = 5):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You need Administrator permission to use this.", ephemeral=True)
+        return
     keys = [generate_key() for _ in range(amount)]
     await interaction.response.send_message(f"✅ Generated {amount} keys:\n```" + "\n".join(keys) + "```", ephemeral=True)
 
-# Redeem with Modal
+# Redeem Modal (Everyone can use)
 class RedeemModal(discord.ui.Modal, title="Redeem Your Key"):
     key_input = discord.ui.TextInput(label="Enter your key", placeholder="KM-XXXX-XXXX-XXXX-XXXX", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
         key = self.key_input.value.strip()
-
         if ROLE_ID is None:
             await interaction.response.send_message("❌ Bot not setup yet.", ephemeral=True)
             return
