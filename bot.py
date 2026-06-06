@@ -24,48 +24,58 @@ def generate_key():
 @bot.event
 async def on_ready():
     print(f"✅ Bot is online as {bot.user}")
-    # Force sync for your server
     try:
-        guild = discord.Object(id=1511181685881045002)  # ← Change this
-        synced = await bot.tree.sync(guild=guild)
-        print(f"Synced {len(synced)} commands to your server")
+        guild = discord.Object(id=1511181685881045002)
+        await bot.tree.sync(guild=guild)
+        print("✅ Commands synced!")
     except Exception as e:
         print(f"Sync error: {e}")
     check_expirations.start()
 
+# Setup (Admin only)
 @bot.tree.command(name="setup", description="Setup the bot (Admin only)")
 @commands.has_permissions(administrator=True)
 async def setup(interaction: discord.Interaction, role: discord.Role):
     global ROLE_ID
     ROLE_ID = role.id
-    await interaction.response.send_message(f"✅ Setup complete!\nRole set to: **{role.name}**", ephemeral=True)
+    await interaction.response.send_message(f"✅ Setup complete!\nNSFW Role set to: **{role.name}**", ephemeral=True)
 
+# Generate Keys (Admin only)
 @bot.tree.command(name="gen", description="Generate keys (Admin only)")
 @commands.has_permissions(administrator=True)
 async def gen(interaction: discord.Interaction, amount: int = 5):
     keys = [generate_key() for _ in range(amount)]
-    await interaction.response.send_message(f"Generated {amount} keys:\n```" + "\n".join(keys) + "```", ephemeral=True)
+    await interaction.response.send_message(f"✅ Generated {amount} keys:\n```" + "\n".join(keys) + "```", ephemeral=True)
+
+# Redeem with Modal
+class RedeemModal(discord.ui.Modal, title="Redeem Your Key"):
+    key_input = discord.ui.TextInput(label="Enter your key", placeholder="KM-XXXX-XXXX-XXXX-XXXX", required=True)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        key = self.key_input.value.strip()
+
+        if ROLE_ID is None:
+            await interaction.response.send_message("❌ Bot not setup yet.", ephemeral=True)
+            return
+
+        member = interaction.user
+        role = interaction.guild.get_role(ROLE_ID)
+
+        if role in member.roles:
+            await interaction.response.send_message("You already have active access!", ephemeral=True)
+            return
+
+        await member.add_roles(role)
+
+        expires = (datetime.utcnow() + timedelta(days=7)).isoformat()
+        c.execute("INSERT OR REPLACE INTO active_access VALUES (?, ?)", (member.id, expires))
+        conn.commit()
+
+        await interaction.response.send_message(f"✅ Success! You now have **7 days** NSFW access.", ephemeral=True)
 
 @bot.tree.command(name="redeem", description="Redeem your key for 7 days access")
-async def redeem(interaction: discord.Interaction, key: str):
-    if ROLE_ID is None:
-        await interaction.response.send_message("❌ Run `/setup` first!", ephemeral=True)
-        return
-
-    member = interaction.user
-    role = interaction.guild.get_role(ROLE_ID)
-
-    if role in member.roles:
-        await interaction.response.send_message("You already have access!", ephemeral=True)
-        return
-
-    await member.add_roles(role)
-
-    expires = (datetime.utcnow() + timedelta(days=7)).isoformat()
-    c.execute("INSERT OR REPLACE INTO active_access VALUES (?, ?)", (member.id, expires))
-    conn.commit()
-
-    await interaction.response.send_message(f"✅ You now have **7 days** NSFW access!", ephemeral=True)
+async def redeem(interaction: discord.Interaction):
+    await interaction.response.send_modal(RedeemModal())
 
 @tasks.loop(minutes=20)
 async def check_expirations():
