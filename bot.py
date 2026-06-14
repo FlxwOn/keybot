@@ -1,99 +1,135 @@
 import discord
-from discord.ext import commands, tasks
+from discord import app_commands
+import os
 import sqlite3
 from datetime import datetime, timedelta
-import random
-import string
-import os
+import asyncio
+
+# ====================== CONFIG ======================
+TOKEN = os.getenv("TOKEN")
+ROLE_ID = 1511762417225302099  # ← CHANGE THIS
+GUILD_ID = 1511181685881045002  # Your server ID
 
 intents = discord.Intents.default()
 intents.members = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+intents.message_content = True
 
-conn = sqlite3.connect('keys.db')
-c = conn.cursor()
-c.execute('''CREATE TABLE IF NOT EXISTS active_access 
-             (user_id INTEGER PRIMARY KEY, expires TEXT)''')
+bot = discord.Client(intents=intents)
+tree = app_commands.CommandTree(bot)
+
+# Database
+conn = sqlite3.connect("keys.db")
+cursor = conn.cursor()
+cursor.execute('''CREATE TABLE IF NOT EXISTS active_access (user_id INTEGER PRIMARY KEY, expires TEXT)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS used_keys (key TEXT PRIMARY KEY)''')
 conn.commit()
 
-ROLE_ID = None
-
-def generate_key():
-    return "KM-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=20))
-
-@bot.event
-async def on_ready():
-    print(f"✅ Bot is online as {bot.user}")
-    try:
-        guild = discord.Object(id=1511181685881045002)
-        await bot.tree.sync(guild=guild)
-        print("✅ Commands synced!")
-    except Exception as e:
-        print(f"Sync error: {e}")
-    check_expirations.start()
-
-# === ADMIN ONLY COMMANDS ===
-@bot.tree.command(name="setup", description="Setup the bot (Admin only)")
-async def setup(interaction: discord.Interaction, role: discord.Role):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ You need Administrator permission to use this.", ephemeral=True)
-        return
-    global ROLE_ID
-    ROLE_ID = role.id
-    await interaction.response.send_message(f"✅ Setup complete!\nNSFW Role set to: **{role.name}**", ephemeral=True)
-
-@bot.tree.command(name="gen", description="Generate keys (Admin only)")
-async def gen(interaction: discord.Interaction, amount: int = 5):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ You need Administrator permission to use this.", ephemeral=True)
-        return
-    keys = [generate_key() for _ in range(amount)]
-    await interaction.response.send_message(f"✅ Generated {amount} keys:\n```" + "\n".join(keys) + "```", ephemeral=True)
-
-# Redeem Modal (Everyone can use)
-class RedeemModal(discord.ui.Modal, title="Redeem Your Key"):
-    key_input = discord.ui.TextInput(label="Enter your key", placeholder="KM-XXXX-XXXX-XXXX-XXXX", required=True)
+# ====================== REDEEM MODAL ======================
+class RedeemModal(discord.ui.Modal, title="Redeem Key"):
+    key = discord.ui.TextInput(label="Enter your key", placeholder="KM-XXXX-XXXX-XXXX-XXXX", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
-        key = self.key_input.value.strip()
-        if ROLE_ID is None:
-            await interaction.response.send_message("❌ Bot not setup yet.", ephemeral=True)
+        key = self.key.value.strip().upper()
+
+        cursor.execute("SELECT * FROM used_keys WHERE key = ?", (key,))
+        if cursor.fetchone():
+            await interaction.response.send_message("❌ This key has already been used.", ephemeral=True)
             return
 
-        member = interaction.user
         role = interaction.guild.get_role(ROLE_ID)
-
-        if role in member.roles:
-            await interaction.response.send_message("You already have active access!", ephemeral=True)
+        if not role:
+            await interaction.response.send_message("❌ Role not found.", ephemeral=True)
             return
 
-        await member.add_roles(role)
-
-        expires = (datetime.utcnow() + timedelta(days=7)).isoformat()
-        c.execute("INSERT OR REPLACE INTO active_access VALUES (?, ?)", (member.id, expires))
+        await interaction.user.add_roles(role)
+        
+        expires = (datetime.utcnow() + timedelta(hours=1)).isoformat()
+        cursor.execute("INSERT INTO active_access (user_id, expires) VALUES (?, ?)", 
+                     (interaction.user.id, expires))
+        
+        cursor.execute("INSERT INTO used_keys (key) VALUES (?)", (key,))
         conn.commit()
 
-        await interaction.response.send_message(f"✅ Success! You now have **7 days** NSFW access.", ephemeral=True)
+        # Public Embed Log
+        embed = discord.Embed(
+            title="🔑 Key Redeemed Successfully",
+            description=f"{interaction.user.mention} just unlocked access!",
+            color=0xC026D3
+        )
+        embed.add_field(name="User", value=interaction.user.mention, inline=True)
+        embed.add_field(name="Key", value=f"`{key}`", inline=True)
+        embed.add_field(name="Duration", value="1 Hour", inline=True)
+        embed.set_footer(text="GemArchive • Premium Collection")
+        embed.timestamp = datetime.utcnow()
 
-@bot.tree.command(name="redeem", description="Redeem your key for 7 days access")
+        log_channel = discord.utils.get(interaction.guild.text_channels, name="key-logs")
+        if log_channel:
+            await log_channel.send(embed=embed)
+        else:
+            getkey = discord.utils.get(interaction.guild.text_channels, name="get-key")
+            if getkey:
+                await getkey.send(embed=embed)
+
+        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] KEY REDEEMED → {interaction.user}")
+
+        await interaction.response.send_message("✅ **Success!** You now have **1 hour** of access.", ephemeral=True)
+
+# ====================== COMMANDS ======================
+@tree.command(name="setup", description="Setup the bot (Admin only)")
+@app_commands.checks.has_permissions(administrator=True)
+async def setup(interaction: discord.Interaction):
+    await interaction.response.send_message("✅ Bot setup complete! Use /redeem to redeem keys.", ephemeral=True)
+
+@tree.command(name="gen", description="Generate a key (Admin only)")
+@app_commands.checks.has_permissions(administrator=True)
+async def gen(interaction: discord.Interaction):
+    key = "KM-" + "-".join([os.urandom(2).hex().upper() for _ in range(4)])
+    await interaction.response.send_message(f"**Generated Key:** `{key}`", ephemeral=True)
+
+@tree.command(name="redeem", description="Redeem your key")
 async def redeem(interaction: discord.Interaction):
     await interaction.response.send_modal(RedeemModal())
 
-@tasks.loop(minutes=20)
+# ====================== EXPIRATION TASK ======================
+@tasks.loop(minutes=5)
 async def check_expirations():
     now = datetime.utcnow().isoformat()
-    c.execute("SELECT user_id FROM active_access WHERE expires < ?", (now,))
-    for (user_id,) in c.fetchall():
+    cursor.execute("SELECT user_id FROM active_access WHERE expires < ?", (now,))
+    expired = cursor.fetchall()
+
+    for (user_id,) in expired:
         for guild in bot.guilds:
             member = guild.get_member(user_id)
-            role = guild.get_role(ROLE_ID)
-            if member and role:
-                try:
+            if member:
+                role = guild.get_role(ROLE_ID)
+                if role and role in member.roles:
                     await member.remove_roles(role)
-                except:
-                    pass
-    c.execute("DELETE FROM active_access WHERE expires < ?", (now,))
+
+                    # Public expiration log
+                    embed = discord.Embed(
+                        title="⏰ Access Expired",
+                        description=f"{member.mention}'s access has ended.",
+                        color=0x6B7280
+                    )
+                    embed.set_footer(text="GemArchive")
+                    embed.timestamp = datetime.utcnow()
+
+                    log_channel = discord.utils.get(guild.text_channels, name="key-logs")
+                    if log_channel:
+                        await log_channel.send(embed=embed)
+
+    cursor.execute("DELETE FROM active_access WHERE expires < ?", (now,))
     conn.commit()
 
-token = os.getenv("TOKEN")
-bot.run(token)
+# ====================== BOT EVENTS ======================
+@bot.event
+async def on_ready():
+    print(f"✅ Bot is online as {bot.user}")
+    check_expirations.start()
+    
+    guild = discord.Object(id=GUILD_ID)
+    await tree.sync(guild=guild)
+    print("Commands synced.")
+
+# Run the bot
+bot.run(TOKEN)
