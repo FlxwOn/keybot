@@ -29,32 +29,22 @@ conn.commit()
 def random_str(n=4):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=n))
 
-# ====================== MODAL ======================
+# ====================== REDEEM MODAL ======================
 class RedeemModal(discord.ui.Modal, title="Redeem Key"):
-    key = discord.ui.TextInput(
-        label="Enter your key",
-        placeholder="KM-XXXX-XXXX-XXXX-XXXX",
-        style=discord.TextStyle.short,
-        required=True,
-        max_length=30
-    )
+    key = discord.ui.TextInput(label="Enter your key", placeholder="KM-XXXX-XXXX-XXXX-XXXX", max_length=30)
 
     async def on_submit(self, interaction: discord.Interaction):
         key = self.key.value.strip().upper()
-
         if not key.startswith("KM-"):
-            await interaction.response.send_message("❌ Key must start with KM-", ephemeral=True)
-            return
+            return await interaction.response.send_message("❌ Key must start with KM-", ephemeral=True)
 
         cursor.execute("SELECT * FROM used_keys WHERE key = ?", (key,))
         if cursor.fetchone():
-            await interaction.response.send_message("❌ This key has already been used.", ephemeral=True)
-            return
+            return await interaction.response.send_message("❌ This key has already been used.", ephemeral=True)
 
         role = interaction.guild.get_role(ROLE_ID)
         if not role:
-            await interaction.response.send_message("❌ Role not found.", ephemeral=True)
-            return
+            return await interaction.response.send_message("❌ Role not found.", ephemeral=True)
 
         await interaction.user.add_roles(role)
 
@@ -71,23 +61,53 @@ class RedeemModal(discord.ui.Modal, title="Redeem Key"):
         await interaction.response.send_message("✅ Success! You have **1 hour** access.", ephemeral=True)
 
 # ====================== COMMANDS ======================
-@tree.command(name="gen", description="Generate new key (Owner only)")
-async def gen(interaction: discord.Interaction):
+@tree.command(name="gen", description="Generate keys (Owner only)")
+@app_commands.describe(amount="Number of keys (1-10)")
+async def gen(interaction: discord.Interaction, amount: int = 1):
     if interaction.user.id != OWNER_ID:
         return await interaction.response.send_message("❌ Owner only.", ephemeral=True)
     
-    key = f"KM-{random_str()}-{random_str()}-{random_str()}-{random_str()}"
-    cursor.execute("INSERT INTO used_keys (key) VALUES (?)", (key,))
+    amount = max(1, min(10, amount))
+    keys = []
+    for _ in range(amount):
+        key = f"KM-{random_str()}-{random_str()}-{random_str()}-{random_str()}"
+        cursor.execute("INSERT INTO used_keys (key) VALUES (?)", (key,))
+        keys.append(key)
+    
     conn.commit()
-    await interaction.response.send_message(f"**New Key:**\n`{key}`", ephemeral=True)
+    key_list = "\n".join([f"`{k}`" for k in keys])
+    await interaction.response.send_message(f"**Generated {amount} key(s):**\n{key_list}", ephemeral=True)
 
 @tree.command(name="redeem", description="Redeem your key")
 async def redeem(interaction: discord.Interaction):
     await interaction.response.send_modal(RedeemModal())
 
+# ====================== AUTO EXPIRATION ======================
+@tasks.loop(minutes=5)
+async def check_expirations():
+    now = datetime.utcnow().isoformat()
+    cursor.execute("SELECT user_id FROM active_access WHERE expires < ?", (now,))
+    expired = cursor.fetchall()
+
+    for (user_id,) in expired:
+        for guild in bot.guilds:
+            member = guild.get_member(user_id)
+            if member:
+                role = guild.get_role(ROLE_ID)
+                if role and role in member.roles:
+                    await member.remove_roles(role)
+                    embed = discord.Embed(title="⏰ Access Expired", description=f"{member.mention}'s access has ended.", color=0x6B7280)
+                    log_channel = discord.utils.get(guild.text_channels, name="key-logs")
+                    if log_channel:
+                        await log_channel.send(embed=embed)
+
+    cursor.execute("DELETE FROM active_access WHERE expires < ?", (now,))
+    conn.commit()
+
 @bot.event
 async def on_ready():
     print(f"✅ Bot online as {bot.user}")
+    check_expirations.start()
     await tree.sync(guild=discord.Object(id=GUILD_ID))
     print("✅ Commands synced.")
 
