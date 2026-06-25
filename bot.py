@@ -7,10 +7,9 @@ from discord.ext import tasks
 import random
 import string
 
-# ====================== CONFIG ======================
 TOKEN = os.getenv("TOKEN")
-OWNER_ID = 1511181685881045002  # ← YOUR ID
-ROLE_ID = 1511762417225302099      # ← CHANGE THIS
+OWNER_ID = 1511181685881045002
+ROLE_ID = 1511762417225302099        # ← CHANGE
 GUILD_ID = 1511181685881045002
 
 intents = discord.Intents.default()
@@ -19,7 +18,6 @@ intents.members = True
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
 
-# Database
 conn = sqlite3.connect("keys.db")
 cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS used_keys (key TEXT PRIMARY KEY)''')
@@ -29,14 +27,13 @@ conn.commit()
 def random_str(n=4):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=n))
 
-# ====================== REDEEM ======================
 class RedeemModal(discord.ui.Modal, title="Redeem Key"):
-    key = discord.ui.TextInput(label="Key", placeholder="KM-XXXX-XXXX-XXXX-XXXX", max_length=30)
+    key = discord.ui.TextInput(label="Enter Key", placeholder="KM-XXXX-XXXX-XXXX-XXXX", max_length=30)
 
     async def on_submit(self, interaction: discord.Interaction):
         key = self.key.value.strip().upper()
         if not key.startswith("KM-"):
-            return await interaction.response.send_message("❌ Invalid format.", ephemeral=True)
+            return await interaction.response.send_message("❌ Must start with KM-", ephemeral=True)
 
         cursor.execute("SELECT * FROM used_keys WHERE key = ?", (key,))
         if cursor.fetchone():
@@ -53,33 +50,23 @@ class RedeemModal(discord.ui.Modal, title="Redeem Key"):
 
         await interaction.response.send_message("✅ 1 hour access granted!", ephemeral=True)
 
-# ====================== COMMANDS ======================
 @tree.command(name="gen", description="Generate key (Owner only)")
 async def gen(interaction: discord.Interaction):
     if interaction.user.id != OWNER_ID:
-        return await interaction.response.send_message("❌ Owner only.", ephemeral=True)
-    
+        return await interaction.response.send_message("❌ Owner only", ephemeral=True)
     key = f"KM-{random_str()}-{random_str()}-{random_str()}-{random_str()}"
     cursor.execute("INSERT INTO used_keys (key) VALUES (?)", (key,))
     conn.commit()
     await interaction.response.send_message(f"**New Key:**\n`{key}`", ephemeral=True)
 
-@tree.command(name="redeem", description="Redeem a key")
+@tree.command(name="redeem", description="Redeem your key")
 async def redeem(interaction: discord.Interaction):
     await interaction.response.send_modal(RedeemModal())
 
-# Expiration Task
-@tasks.loop(minutes=5)
-async def check_expirations():
-    # ... (same as before)
-    pass  # I'll add full if needed
-
 @bot.event
 async def on_ready():
-    print(f"✅ {bot.user} is online")
-    check_expirations.start()
-    await tree.sync()
+    print(f"✅ Bot is online: {bot.user}")
     await tree.sync(guild=discord.Object(id=GUILD_ID))
-    print("✅ Commands synced.")
+    print("✅ Commands synced to server.")
 
 bot.run(TOKEN)
