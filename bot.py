@@ -11,8 +11,8 @@ from threading import Thread
 
 # ====================== CONFIG ======================
 TOKEN = os.getenv("TOKEN")
-OWNER_ID = 1511181685881045002
-ROLE_ID = YOUR_ROLE_ID_HERE
+OWNER_ID = 1306613335713779755
+ROLE_ID = 1511762417225302099
 GUILD_ID = 1511181685881045002
 
 intents = discord.Intents.default()
