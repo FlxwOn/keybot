@@ -42,9 +42,10 @@ def generate_key():
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
+    print(f"🚀 Flask API running on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
 
-# ====================== DISCORD BOT (same as before) ======================
+# ====================== DISCORD BOT ======================
 class RedeemModal(discord.ui.Modal, title="Redeem Key"):
     key = discord.ui.TextInput(label="Enter your key", placeholder="KM-XXXX-XXXX-XXXX-XXXX", max_length=30)
 
@@ -117,6 +118,6 @@ async def on_ready():
     check_expirations.start()
     Thread(target=run_flask, daemon=True).start()
     await tree.sync(guild=discord.Object(id=GUILD_ID))
-    print("✅ Commands synced + API running.")
+    print("✅ Commands synced + API started.")
 
 bot.run(TOKEN)
