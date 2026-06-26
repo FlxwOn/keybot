@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from discord.ext import tasks
 import random
 import string
+from flask import Flask, jsonify
+from threading import Thread
 
 # ====================== CONFIG ======================
 TOKEN = os.getenv("TOKEN")
@@ -19,7 +21,7 @@ intents.members = True
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
 
-conn = sqlite3.connect("keys.db")
+conn = sqlite3.connect("keys.db", check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS used_keys (key TEXT PRIMARY KEY)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS active_access (user_id INTEGER PRIMARY KEY, expires TEXT)''')
@@ -28,7 +30,26 @@ conn.commit()
 def random_str(n=4):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=n))
 
-# ====================== REDEEM MODAL ======================
+# ====================== FLASK API ======================
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "✅ KeyBot API is running!"
+
+@app.route('/generate-key')
+def generate_key():
+    key = f"KM-{random_str()}-{random_str()}-{random_str()}-{random_str()}"
+    cursor.execute("INSERT INTO used_keys (key) VALUES (?)", (key,))
+    conn.commit()
+    return jsonify({"success": True, "key": key})
+
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    print(f"🚀 Flask API started on port {port}")
+    app.run(host="0.0.0.0", port=port, debug=False)
+
+# ====================== BOT COMMANDS ======================
 class RedeemModal(discord.ui.Modal, title="Redeem Key"):
     key = discord.ui.TextInput(label="Enter your key", placeholder="KM-XXXX-XXXX-XXXX-XXXX", max_length=30)
 
@@ -59,7 +80,6 @@ class RedeemModal(discord.ui.Modal, title="Redeem Key"):
 
         await interaction.response.send_message("✅ Success! You have **1 hour** access.", ephemeral=True)
 
-# ====================== COMMANDS ======================
 @tree.command(name="gen", description="Generate keys (Owner only)")
 @app_commands.describe(amount="How many keys (1-10)")
 async def gen(interaction: discord.Interaction, amount: int = 1):
@@ -100,6 +120,7 @@ async def check_expirations():
 async def on_ready():
     print(f"✅ Bot is online as {bot.user}")
     check_expirations.start()
+    Thread(target=run_flask, daemon=True).start()
     await tree.sync(guild=discord.Object(id=GUILD_ID))
     print("✅ Commands synced.")
 
