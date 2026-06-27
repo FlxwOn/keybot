@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from discord.ext import tasks
 import random
 import string
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from threading import Thread
 
@@ -32,19 +32,36 @@ conn.commit()
 def random_str(n=4):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=n))
 
-# ====================== FLASK API ======================
+# ====================== FLASK API (with cooldown) ======================
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})   # Allow website connection
+CORS(app, resources={r"/*": {"origins": "*"}})
+
+last_generated = {}  # IP -> timestamp
 
 @app.route('/')
 def home():
-    return "✅ KeyBot API is running! Use /generate-key"
+    return "✅ KeyBot API is running!"
 
 @app.route('/generate-key')
 def generate_key():
+    ip = request.remote_addr or "unknown"
+    
+    # 1 hour cooldown per IP
+    if ip in last_generated:
+        time_diff = datetime.utcnow().timestamp() - last_generated[ip]
+        if time_diff < 3600:
+            remaining = int(3600 - time_diff)
+            return jsonify({
+                "success": False, 
+                "error": f"Wait {remaining//60} minutes before generating another key."
+            })
+    
     key = f"KM-{random_str()}-{random_str()}-{random_str()}-{random_str()}"
     cursor.execute("INSERT INTO used_keys (key) VALUES (?)", (key,))
     conn.commit()
+    
+    last_generated[ip] = datetime.utcnow().timestamp()
+    
     return jsonify({"success": True, "key": key})
 
 def run_flask():
