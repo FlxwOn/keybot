@@ -12,7 +12,7 @@ from threading import Thread
 # ====================== CONFIG ======================
 TOKEN = os.getenv("TOKEN")
 OWNER_ID = 1306613335713779755
-ROLE_ID = 1511762417225302099
+ROLE_ID = 1511762417225302099          # ← CHANGE THIS
 GUILD_ID = 1511181685881045002
 
 intents = discord.Intents.default()
@@ -35,7 +35,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "✅ KeyBot API is running!"
+    return "✅ KeyBot API is running! Use /generate-key"
 
 @app.route('/generate-key')
 def generate_key():
@@ -49,7 +49,7 @@ def run_flask():
     print(f"🚀 Flask API started on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
 
-# ====================== BOT COMMANDS ======================
+# ====================== BOT ======================
 class RedeemModal(discord.ui.Modal, title="Redeem Key"):
     key = discord.ui.TextInput(label="Enter your key", placeholder="KM-XXXX-XXXX-XXXX-XXXX", max_length=30)
 
@@ -60,7 +60,7 @@ class RedeemModal(discord.ui.Modal, title="Redeem Key"):
 
         cursor.execute("SELECT * FROM used_keys WHERE key = ?", (key,))
         if not cursor.fetchone():
-            return await interaction.response.send_message("❌ Invalid key.", ephemeral=True)
+            return await interaction.response.send_message("❌ Invalid key. Only keys from the website are valid.", ephemeral=True)
 
         role = interaction.guild.get_role(ROLE_ID)
         if not role:
@@ -122,6 +122,6 @@ async def on_ready():
     check_expirations.start()
     Thread(target=run_flask, daemon=True).start()
     await tree.sync(guild=discord.Object(id=GUILD_ID))
-    print("✅ Commands synced.")
+    print("✅ Commands synced + API started.")
 
 bot.run(TOKEN)
