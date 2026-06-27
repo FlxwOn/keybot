@@ -7,6 +7,7 @@ from discord.ext import tasks
 import random
 import string
 from flask import Flask, jsonify
+from flask_cors import CORS
 from threading import Thread
 
 # ====================== CONFIG ======================
@@ -21,6 +22,7 @@ intents.members = True
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
 
+# Database
 conn = sqlite3.connect("keys.db", check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS used_keys (key TEXT PRIMARY KEY)''')
@@ -32,6 +34,7 @@ def random_str(n=4):
 
 # ====================== FLASK API ======================
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})   # Allow website connection
 
 @app.route('/')
 def home():
@@ -49,7 +52,7 @@ def run_flask():
     print(f"🚀 Flask API started on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
 
-# ====================== BOT ======================
+# ====================== REDEEM MODAL ======================
 class RedeemModal(discord.ui.Modal, title="Redeem Key"):
     key = discord.ui.TextInput(label="Enter your key", placeholder="KM-XXXX-XXXX-XXXX-XXXX", max_length=30)
 
@@ -60,7 +63,7 @@ class RedeemModal(discord.ui.Modal, title="Redeem Key"):
 
         cursor.execute("SELECT * FROM used_keys WHERE key = ?", (key,))
         if not cursor.fetchone():
-            return await interaction.response.send_message("❌ Invalid key. Only keys from the website are valid.", ephemeral=True)
+            return await interaction.response.send_message("❌ Invalid key. Only keys from the website work.", ephemeral=True)
 
         role = interaction.guild.get_role(ROLE_ID)
         if not role:
@@ -80,6 +83,7 @@ class RedeemModal(discord.ui.Modal, title="Redeem Key"):
 
         await interaction.response.send_message("✅ Success! You have **1 hour** access.", ephemeral=True)
 
+# ====================== COMMANDS ======================
 @tree.command(name="gen", description="Generate keys (Owner only)")
 @app_commands.describe(amount="How many keys (1-10)")
 async def gen(interaction: discord.Interaction, amount: int = 1):
@@ -99,6 +103,7 @@ async def gen(interaction: discord.Interaction, amount: int = 1):
 async def redeem(interaction: discord.Interaction):
     await interaction.response.send_modal(RedeemModal())
 
+# ====================== AUTO EXPIRATION ======================
 @tasks.loop(minutes=5)
 async def check_expirations():
     now = datetime.utcnow().isoformat()
